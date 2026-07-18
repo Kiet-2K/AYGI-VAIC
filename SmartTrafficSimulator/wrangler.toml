@@ -1,0 +1,24 @@
+# Cloudflare Workers configuration for SmartTrafficSimulator backend
+name = "smart-traffic-backend"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# Workers Paid plan required for WebSocket và Durable Objects
+workers_dev = true
+
+# Durable Objects for WebSocket persistence
+[[durable_objects.bindings]]
+name = "TRAFFIC_SOCKET"
+class_name = "TrafficWebSocket"
+
+# Migration for Durable Objects
+[[migrations]]
+tag = "v1"
+new_classes = ["TrafficWebSocket"]
+
+# Environment variables
+[env.production]
+name = "smart-traffic-backend"
+
+[env.staging]
+name = "smart-traffic-backend-staging"

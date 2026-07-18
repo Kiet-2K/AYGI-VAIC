@@ -142,7 +142,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="Bộ điều khiển đèn giao thông thông minh", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:3000", "http://localhost:3000"],
+    allow_origins=[
+        "http://127.0.0.1:3000",
+        "http://localhost:3000",
+        # Cloudflare Pages domains (cập nhật sau khi deploy frontend)
+        "https://*.pages.dev",
+        # Cho phép tất cả Cloudflare Pages subdomain
+    ],
+    allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type"],
 )
