@@ -1,0 +1,22 @@
+{$DOMAIN} {
+	# API và WebSocket đi vào backend
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+
+	# Swagger/OpenAPI docs
+	handle /docs* {
+		reverse_proxy backend:8000
+	}
+	handle /redoc* {
+		reverse_proxy backend:8000
+	}
+	handle /openapi.json {
+		reverse_proxy backend:8000
+	}
+
+	# Còn lại phục vụ frontend
+	handle {
+		reverse_proxy frontend:80
+	}
+}

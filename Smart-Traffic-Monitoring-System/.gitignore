@@ -1,0 +1,40 @@
+# Runtime secrets (create from .env.example)
+.env
+.env.*
+!.env.example
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Node and build output
+node_modules/
+dist/
+dist-ssr/
+*.local
+
+# Runtime media and data
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.log
+*.db
+*.sqlite*
+backend/app/video_test/
+
+# Untracked/generated model variants; the selected ONNX file is committed
+backend/app/ai_models/model*/
+backend/app/ai_models/**/*.pt
+backend/app/ai_models/**/*.engine
+backend/app/ai_models/**/*.onnx_data/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

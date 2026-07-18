@@ -1,0 +1,45 @@
+# Core ML/AI libraries
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.6.0+cpu
+torchvision==0.21.0+cpu
+torchaudio==2.6.0+cpu
+numpy
+opencv-python
+cvzone
+ultralytics
+onnxruntime
+openvino
+shapely
+lap
+git+https://github.com/ultralytics/CLIP.git
+
+# FastAPI and web framework
+fastapi
+uvicorn[standard]
+pydantic
+python-dotenv
+
+# Database and authentication
+sqlalchemy[asyncio]
+asyncpg
+passlib
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+python-jose[cryptography]
+python-multipart
+
+# LangChain and AI
+langchain
+langchain_google_genai
+langchain_groq
+langgraph
+
+# Utilities
+overrides
+email-validator
+
+# Telegram bot
+python-telegram-bot
+
+# System metrics
+psutil

@@ -1,0 +1,87 @@
+# Biến ${...} dưới đây được Docker Compose đọc từ file ".env" ở ROOT
+# (khác với "backend/app/.env" dùng cho runtime của app FastAPI).
+# Xem .env.example để biết cần khai báo gì trước khi chạy.
+
+services:
+  database:
+    image: postgres:16
+    container_name: database
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-odoo}
+      POSTGRES_DB: ${DATABASE_NAME:-transportation_system}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - mynet
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        DEVICE: cpu
+    container_name: backend
+    env_file:
+      - ./backend/app/.env
+    environment:
+      # Trong Docker network, container Postgres tên là "database", không phải "localhost"
+      DATABASE_HOST: database
+      DATABASE_PORT: 5432
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8000}
+      PUBLIC_FRONTEND_URL: ${PUBLIC_FRONTEND_URL:-http://localhost:5173}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/app/video_test:/backend/app/video_test
+    depends_on:
+      - database
+    networks:
+      - mynet
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_HTTP_BASE: ${PUBLIC_API_URL:-http://localhost:8000}
+        VITE_API_WS_BASE: ${PUBLIC_API_WS_URL:-ws://localhost:8000}
+    container_name: frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    networks:
+      - mynet
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - mynet
+
+networks:
+  mynet:
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
+
+# Local dev (không domain/HTTPS): docker compose up --build
+# Deploy VPS: xem DEPLOY.md

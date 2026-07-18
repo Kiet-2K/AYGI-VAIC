@@ -1,0 +1,75 @@
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+tests/
+
+# Documentation
+*.md
+!README.md
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Large model files (keep only what's needed)
+**/bench marks/
+**/mnn models/
+**/onnx models/
+**/runs/
+**/TensorRT/
+**/torchscript models/
+
+# Keep only the optimized OpenVINO model (its files must be explicitly
+# re-included after ignored parent paths).
+!app/ai_models/model N/
+!app/ai_models/model N/openvino models/
+!app/ai_models/model N/openvino models/best_int8_openvino_model/
+!app/ai_models/model N/openvino models/best_int8_openvino_model/**
+
+# Environment
+.env.local
+.env.*.local
+
+# Alembic (nếu không cần trong container)
+# alembic/versions/
+
+# Local runtime data and secrets (videos are bind-mounted by Compose at runtime)
+**/.venv/
+**/video_test/
+**/*.mp4
+**/.env
+**/.env.*
