@@ -1,0 +1,19 @@
+[Unit]
+Description=Traffic Detection (YOLO + Arduino) - chay trong Docker
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nvidia
+WorkingDirectory=/mnt/jetson_sd/traffic_project
+# Tham so main.py: sua o day cho dung camera / IP Arduino thuc te.
+# Mega o 192.168.16.201 (dai B-LINK). Doi --camera-v neu camera khong phai index 0.
+Environment=MAIN_ARGS=--camera-v 0 --arduino 192.168.16.201
+ExecStart=/bin/bash /mnt/jetson_sd/traffic_project/run_traffic_headless.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

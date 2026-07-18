@@ -1,0 +1,26 @@
+# ============================================================
+# requirements.txt – Hệ Thống Phát Hiện Vi Phạm Đèn Đỏ
+# ============================================================
+# Cài đặt: pip install -r requirements.txt
+#
+# LƯU Ý: Máy chạy inference (nhận diện) trên CPU vẫn OK, chỉ chậm.
+#        Việc TRAIN model nên làm trên Google Colab (GPU free) – xem train_colab.ipynb.
+
+# ---- Core AI ----
+ultralytics>=8.3.0          # YOLOv8 + ByteTrack tracking
+torch>=2.0.0                # PyTorch (CPU OK, GPU tốt hơn)
+
+# ---- Computer Vision ----
+opencv-python>=4.8.0        # OpenCV với GUI (hiển thị cửa sổ)
+numpy>=1.24.0
+
+# ---- Lưu vi phạm ra Excel ----
+openpyxl>=3.1.0             # ghi file violations.xlsx
+
+# ---- OCR (TÙY CHỌN) ----
+# Mặc định dùng model YOLO license_plate_ocr.pt (KHÔNG cần easyocr).
+# Chỉ cài easyocr nếu muốn chạy fallback: python main.py --ocr-engine easyocr
+# easyocr>=1.7.0
+
+# ---- Built-in (không cần cài) ----
+# socket, threading, json, csv, argparse – có sẵn trong Python
