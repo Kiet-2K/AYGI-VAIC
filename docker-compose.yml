@@ -3,7 +3,7 @@ services:
     build:
       context: ./backend
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -14,11 +14,11 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_TRAFFIC_WS_URL: ws://localhost:8000/ws/traffic
+        NEXT_PUBLIC_TRAFFIC_WS_URL: ${TRAFFIC_WS_URL:-ws://localhost:8000/ws/traffic}
     environment:
-      NEXT_PUBLIC_TRAFFIC_WS_URL: ws://localhost:8000/ws/traffic
+      NEXT_PUBLIC_TRAFFIC_WS_URL: ${TRAFFIC_WS_URL:-ws://localhost:8000/ws/traffic}
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
       backend:
         condition: service_healthy
