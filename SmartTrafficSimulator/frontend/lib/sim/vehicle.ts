@@ -63,6 +63,8 @@ export interface Vehicle {
   emergency: boolean;
   licensePlate: string;
   redLightViolation: boolean;
+  /** Demo-only flag: bypasses the stop-line wall while preserving violation detection. */
+  forceRedLightViolation: boolean;
 }
 
 /** IDM free-flow acceleration exponent. */
@@ -109,7 +111,8 @@ export function createVehicle(init: VehicleInit): Vehicle {
     waitTime: 0,
     emergency: init.emergency ?? false,
     licensePlate: init.licensePlate ?? "00000",
-    redLightViolation: false
+    redLightViolation: false,
+    forceRedLightViolation: false
   };
 }
 

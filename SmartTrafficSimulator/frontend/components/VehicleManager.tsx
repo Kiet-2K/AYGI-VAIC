@@ -6,10 +6,10 @@ import { Group, Vector3 } from "three";
 
 import { projectWorldBoundingBox } from "@/lib/projection";
 import { toDetection } from "@/lib/sim/detectionAdapter";
-import { SimulationEngine, type EngineSnapshot } from "@/lib/sim/engine";
+import { SimulationEngine, type EngineSnapshot, type ScenarioId } from "@/lib/sim/engine";
 import type { Vehicle } from "@/lib/sim/vehicle";
 import { VEHICLE_CLASSES } from "@/lib/sim/vehicleClasses";
-import type { DetectionBox, DirectionTrafficCounts, QueueCounts, SignalState, TrafficReport } from "@/types/traffic";
+import type { DetectionBox, DirectionTrafficCounts, QueueCounts, SignalState, TrafficReport, ViolationEvent } from "@/types/traffic";
 
 const DETECTION_UPDATE_SECONDS = 1 / 30;
 const SNAPSHOT_UPDATE_SECONDS = 0.1;
@@ -20,6 +20,11 @@ export interface VehicleManagerHandle {
   emergencyAllRed: () => void;
   clearEmergency: () => void;
   reset: () => void;
+  setPaused: (paused: boolean) => void;
+  setSpeedMultiplier: (multiplier: number) => void;
+  setScenario: (scenario: ScenarioId) => void;
+  triggerEmergency: () => void;
+  triggerRedLightViolation: () => void;
   applySignalState: (state: SignalState | null) => void;
 }
 
@@ -28,6 +33,7 @@ interface VehicleManagerProps {
   onQueuesChange: (queues: QueueCounts) => void;
   onTrafficCounts: (counts: DirectionTrafficCounts) => void;
   onTrafficReport: (report: TrafficReport) => void;
+  onViolations: (events: ViolationEvent[], blacklistedCount: number) => void;
   onFpsChange: (fps: number) => void;
   onSnapshot: (snapshot: EngineSnapshot) => void;
   bindEngine: (handle: VehicleManagerHandle) => void;
@@ -81,6 +87,7 @@ export function VehicleManager({
   onQueuesChange,
   onTrafficCounts,
   onTrafficReport,
+  onViolations,
   onFpsChange,
   onSnapshot,
   bindEngine
@@ -107,6 +114,14 @@ export function VehicleManager({
         engine.reset();
         setRenderRevision((r) => r + 1);
       },
+      setPaused: (paused) => paused ? engine.pause() : engine.resume(),
+      setSpeedMultiplier: (multiplier) => engine.setSpeedMultiplier(multiplier),
+      setScenario: (scenario) => {
+        engine.setScenario(scenario);
+        setRenderRevision((r) => r + 1);
+      },
+      triggerEmergency: () => engine.triggerEmergency(),
+      triggerRedLightViolation: () => engine.triggerRedLightViolation(),
       applySignalState: (state) => engine.applySignalState(state)
     });
   }, [engine, bindEngine]);
@@ -154,6 +169,10 @@ export function VehicleManager({
       snapshotClockRef.current = 0;
       onSnapshot(engine.snapshot());
       onTrafficReport(engine.trafficReport());
+      const violations = engine.drainViolations();
+      if (violations.length > 0) {
+        onViolations(violations, engine.blacklistedPlateCount());
+      }
     }
 
     if (fpsClockRef.current >= 0.5) {

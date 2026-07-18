@@ -43,6 +43,29 @@ describe("movementAllowed", () => {
   });
 });
 
+describe("movement signal maps", () => {
+  it("keeps the main head red during a protected-left phase", () => {
+    const controller = new SignalController("NS_LEFT");
+
+    expect(controller.perDirectionSignals().north).toBe("RED");
+    expect(controller.leftSignals().north).toBe("GREEN");
+    expect(controller.leftSignals().south).toBe("GREEN");
+    expect(controller.leftSignals().east).toBe("RED");
+    expect(controller.perDirectionCountdown().north.color).toBe("RED");
+    expect(controller.leftCountdown().north.visible).toBe(false);
+  });
+
+  it("keeps the left arrow red during a straight-right phase", () => {
+    const controller = new SignalController("EW_STRAIGHT_RIGHT");
+
+    expect(controller.perDirectionSignals().east).toBe("GREEN");
+    expect(controller.perDirectionSignals().west).toBe("GREEN");
+    expect(controller.leftSignals().east).toBe("RED");
+    expect(controller.perDirectionCountdown().east.visible).toBe(false);
+    expect(controller.leftCountdown().east.visible).toBe(false);
+  });
+});
+
 describe("phase sequence", () => {
   it("cycles GREEN -> YELLOW -> ALL_RED -> next GREEN", () => {
     const controller = new SignalController("NS_STRAIGHT_RIGHT");

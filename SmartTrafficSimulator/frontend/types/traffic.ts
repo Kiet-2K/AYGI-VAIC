@@ -70,6 +70,10 @@ export interface SignalState {
   plannedNext: GreenPhase;
   signals: SignalMap;
   countdowns: CountdownMap;
+  mainSignals: SignalMap;
+  leftSignals: SignalMap;
+  mainCountdowns: CountdownMap;
+  leftCountdowns: CountdownMap;
   remainingMs: number;
   committed: boolean;
   manual: boolean;
@@ -109,6 +113,35 @@ export interface DetectionBox {
   emergency: boolean;
   licensePlate?: string;
   redLightViolation?: boolean;
+}
+
+export interface ViolationEvidence {
+  laneId: string;
+  speed: number;
+  signal: SignalColor;
+}
+
+export type ViolationType = "RED_LIGHT" | "WRONG_WAY";
+export interface ViolationEvent {
+  type: "violation_event";
+  id?: string;
+  trackId: number;
+  licensePlate: string;
+  vehicleClass: string;
+  direction: Direction;
+  movement: "LEFT" | "STRAIGHT" | "RIGHT";
+  violation: ViolationType;
+  signal: SignalColor;
+  timestampMs: number;
+  intersection: string;
+  evidenceImage?: string;
+  evidenceImageUrl?: string;
+  evidence: ViolationEvidence;
+}
+
+export interface ViolationHistory {
+  type: "violation_history";
+  violations: ViolationEvent[];
 }
 
 export const SAFE_SIGNALS: SignalMap = {

@@ -7,7 +7,9 @@ import type {
   ControlAction,
   ControlAcknowledgement,
   SignalState,
-  TrafficReport
+  TrafficReport,
+  ViolationEvent,
+  ViolationHistory
 } from "@/types/traffic";
 
 const SOCKET_URL = process.env.NEXT_PUBLIC_TRAFFIC_WS_URL ?? "ws://localhost:8000/ws/traffic";
@@ -19,7 +21,9 @@ interface TrafficSocketResult {
   latencyMs: number | null;
   pendingCommand: ControlAction | null;
   error: string | null;
+  violations: ViolationEvent[];
   sendCommand: (action: ControlAction) => boolean;
+  sendViolations: (events: ViolationEvent[]) => void;
 }
 
 export function useTrafficSocket(report: TrafficReport | null): TrafficSocketResult {
@@ -28,11 +32,13 @@ export function useTrafficSocket(report: TrafficReport | null): TrafficSocketRes
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [pendingCommand, setPendingCommand] = useState<ControlAction | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [violations, setViolations] = useState<ViolationEvent[]>([]);
   const reportRef = useRef(report);
   const socketRef = useRef<WebSocket | null>(null);
   const reconnectAttemptRef = useRef(0);
   const lastStateAtRef = useRef(0);
   const pendingCommandsRef = useRef(new Map<string, ControlAction>());
+  const lastSentSequenceRef = useRef(-1);
 
   useEffect(() => {
     reportRef.current = report;
@@ -49,6 +55,12 @@ export function useTrafficSocket(report: TrafficReport | null): TrafficSocketRes
     return true;
   }, []);
 
+  const sendViolations = useCallback((events: ViolationEvent[]) => {
+    const socket = socketRef.current;
+    if (socket?.readyState !== WebSocket.OPEN) return;
+    for (const event of events) socket.send(JSON.stringify(event));
+  }, []);
+
   useEffect(() => {
     let disposed = false;
     let reconnectTimer: number | undefined;
@@ -61,6 +73,7 @@ export function useTrafficSocket(report: TrafficReport | null): TrafficSocketRes
 
       socket.onopen = () => {
         reconnectAttemptRef.current = 0;
+        lastSentSequenceRef.current = -1;
         setConnectionState("CONNECTED");
         setError(null);
       };
@@ -80,6 +93,14 @@ export function useTrafficSocket(report: TrafficReport | null): TrafficSocketRes
           setSignalState((current) => (!current || state.revision >= current.revision ? state : current));
           setLatencyMs(Math.max(0, Date.now() - state.serverTimestampMs));
           setConnectionState(state.telemetryStale ? "STALE" : "CONNECTED");
+        } else if (message.type === "violation_history") {
+          setViolations((message as ViolationHistory).violations.slice(-200));
+        } else if (message.type === "violation_event") {
+          const event = message as ViolationEvent;
+          setViolations((current) => {
+            if (current.some((item) => item.trackId === event.trackId && item.violation === event.violation)) return current;
+            return [...current, event].slice(-200);
+          });
         } else if (message.type === "control_ack") {
           const acknowledgement = message as ControlAcknowledgement;
           pendingCommandsRef.current.delete(acknowledgement.commandId);
@@ -108,7 +129,14 @@ export function useTrafficSocket(report: TrafficReport | null): TrafficSocketRes
     const reportTimer = window.setInterval(() => {
       const socket = socketRef.current;
       const latest = reportRef.current;
-      if (socket?.readyState === WebSocket.OPEN && latest) socket.send(JSON.stringify(latest));
+      if (
+        socket?.readyState === WebSocket.OPEN &&
+        latest &&
+        latest.sequence > lastSentSequenceRef.current
+      ) {
+        socket.send(JSON.stringify(latest));
+        lastSentSequenceRef.current = latest.sequence;
+      }
     }, 100);
     const staleTimer = window.setInterval(() => {
       if (
@@ -130,5 +158,5 @@ export function useTrafficSocket(report: TrafficReport | null): TrafficSocketRes
     };
   }, []);
 
-  return { connectionState, signalState, latencyMs, pendingCommand, error, sendCommand };
+  return { connectionState, signalState, latencyMs, pendingCommand, error, violations, sendCommand, sendViolations };
 }

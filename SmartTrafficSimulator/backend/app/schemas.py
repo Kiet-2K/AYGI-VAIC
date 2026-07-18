@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -82,6 +83,10 @@ class SignalState(BaseModel):
     planned_next: GreenPhase = Field(alias="plannedNext")
     signals: dict[Direction, SignalColor]
     countdowns: CountdownMap
+    main_signals: dict[Direction, SignalColor] = Field(alias="mainSignals")
+    left_signals: dict[Direction, SignalColor] = Field(alias="leftSignals")
+    main_countdowns: CountdownMap = Field(alias="mainCountdowns")
+    left_countdowns: CountdownMap = Field(alias="leftCountdowns")
     remaining_ms: int = Field(alias="remainingMs", ge=0)
     committed: bool
     manual: bool
@@ -104,14 +109,51 @@ class ControlCommand(BaseModel):
 
 
 ViolationType = Literal["RED_LIGHT", "WRONG_WAY"]
+VehicleClass = Literal[
+    "MOTORBIKE",
+    "CAR",
+    "BUS",
+    "TRUCK",
+    "HEAVY_TRUCK",
+    "AMBULANCE",
+    "FIRE_TRUCK",
+    "POLICE",
+    "MILITARY",
+]
+Turn = Literal["LEFT", "STRAIGHT", "RIGHT"]
+
+
+class ViolationEvidence(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    lane_id: str = Field(alias="laneId", min_length=1)
+    speed: float = Field(ge=0)
+    signal: SignalColor
 
 
 class ViolationEvent(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     type: Literal["violation_event"]
+    id: UUID | None = None
     track_id: int = Field(alias="trackId", ge=1)
     license_plate: str = Field(alias="licensePlate", pattern=r"^\d{5}$")
+    vehicle_class: VehicleClass = Field(alias="vehicleClass")
     direction: Direction
+    movement: Turn
     violation: ViolationType
+    signal: SignalColor
     timestamp_ms: int = Field(alias="timestampMs", ge=0)
+    intersection: str = Field(min_length=1, max_length=120)
+    evidence_image: str | None = Field(alias="evidenceImage", default=None, max_length=2_000_000)
+    evidence_image_url: str | None = Field(alias="evidenceImageUrl", default=None)
+    evidence: ViolationEvidence
+
+
+class ViolationDeleteBatch(BaseModel):
+    ids: list[UUID] = Field(min_length=1, max_length=200)
+
+
+class ViolationHistory(BaseModel):
+    type: Literal["violation_history"] = "violation_history"
+    violations: list[ViolationEvent]

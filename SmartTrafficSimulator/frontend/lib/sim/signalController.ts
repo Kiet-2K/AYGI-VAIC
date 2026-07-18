@@ -26,6 +26,7 @@ export const YELLOW_SECONDS = 3;
 export const BASE_ALL_RED_SECONDS = 1;
 export const MAX_ALL_RED_SECONDS = 3;
 export const COMMIT_SECONDS = 8;
+export const COUNTDOWN_SECONDS = 3;
 
 export const GREEN_PHASES: GreenPhase[] = ["NS_LEFT", "NS_STRAIGHT_RIGHT", "EW_LEFT", "EW_STRAIGHT_RIGHT"];
 
@@ -205,52 +206,53 @@ export class SignalController {
     return this.sub === "GREEN" ? "GREEN" : "YELLOW";
   }
 
-  /**
-   * Legacy per-direction colour for the 3D light heads / dashboard: a direction
-   * shows the most-permissive colour among its movements (green > yellow > red).
-   */
   perDirectionSignals(): SignalMap {
-    const forDir = (d: Direction): SignalColor => {
-      const colors: SignalColor[] = (["LEFT", "STRAIGHT", "RIGHT"] as Turn[]).map((t) =>
-        this.movementColor(d, t)
-      );
-      if (colors.includes("GREEN")) return "GREEN";
-      if (colors.includes("YELLOW")) return "YELLOW";
-      return "RED";
-    };
-    return { north: forDir("north"), south: forDir("south"), east: forDir("east"), west: forDir("west") };
+    return this.movementSignals(false);
   }
 
-  /**
-   * Per-direction countdown (Spec Part 2 / "mỗi đèn có bộ đếm riêng"). Each light
-   * owns its own timer that stays *blank* until the AI has decided to move that
-   * direction's vehicles: it becomes visible only when the direction is being
-   * served right now (green/yellow) OR its movement is the committed next green
-   * (the AI has locked in serving it next). Otherwise `visible` is false so the
-   * board renders nothing — the counter does not appear until the AI processes
-   * that movement.
-   */
+  leftSignals(): SignalMap {
+    return this.movementSignals(true);
+  }
+
+  private movementSignals(left: boolean): SignalMap {
+    const turn: Turn = left ? "LEFT" : "STRAIGHT";
+    return {
+      north: this.movementColor("north", turn),
+      south: this.movementColor("south", turn),
+      east: this.movementColor("east", turn),
+      west: this.movementColor("west", turn)
+    };
+  }
+
   perDirectionCountdown(): CountdownMap {
-    const colors = this.perDirectionSignals();
+    return this.movementCountdown(false);
+  }
+
+  leftCountdown(): CountdownMap {
+    return this.movementCountdown(true);
+  }
+
+  private movementCountdown(left: boolean): CountdownMap {
+    const colors = this.movementSignals(left);
     const nextDirs = phaseDirections(this.plannedNext);
-    // We only reveal the "about to serve" countdown once the phase is committed,
-    // matching the FSM rule that the next green is locked in during the commit window.
-    const revealNext = this.committed;
+    const nextIsLeft = this.plannedNext === "NS_LEFT" || this.plannedNext === "EW_LEFT";
+    const revealNext = nextIsLeft === left && (this.committed || this.sub === "ALL_RED");
 
     const forDir = (d: Direction): DirectionCountdown => {
       const color = colors[d];
-      const servedNow = color !== "RED";
-      if (servedNow) {
-        // Currently green/yellow: count down the remaining time on this sub-phase.
+      if (color === "YELLOW") {
         return { seconds: this.remainingSeconds, visible: true, color };
       }
-      if (revealNext && nextDirs.includes(d)) {
-        // AI has committed to serve this direction next: show time until it opens
-        // (remaining green of the current phase + the yellow + all-red buffer).
-        const untilOpen = this.remainingSeconds + YELLOW_SECONDS + BASE_ALL_RED_SECONDS;
-        return { seconds: untilOpen, visible: true, color: "RED" };
+      if (color === "GREEN") {
+        return {
+          seconds: this.remainingSeconds <= COUNTDOWN_SECONDS ? this.remainingSeconds : 0,
+          visible: this.remainingSeconds <= COUNTDOWN_SECONDS,
+          color
+        };
       }
-      // AI has not decided to move these vehicles yet: keep the board blank.
+      if (revealNext && nextDirs.includes(d) && this.sub === "ALL_RED" && this.remainingSeconds <= COUNTDOWN_SECONDS) {
+        return { seconds: this.remainingSeconds, visible: true, color: "RED" };
+      }
       return { seconds: 0, visible: false, color: "RED" };
     };
 

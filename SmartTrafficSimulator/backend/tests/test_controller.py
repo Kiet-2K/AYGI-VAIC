@@ -86,7 +86,7 @@ def test_controller_follows_safe_phase_sequence() -> None:
     assert controller.tick(clock.now)
     assert controller.sub_phase is SubPhase.ALL_RED
 
-    clock.now += ALL_RED_SECONDS
+    clock.now += MAX_ALL_RED_SECONDS
     report(controller, stats_for(GreenPhase.EW_STRAIGHT_RIGHT), sequence=3)
     assert controller.tick(clock.now)
     assert controller.sub_phase is SubPhase.GREEN
@@ -125,7 +125,24 @@ def test_stale_telemetry_forces_all_red() -> None:
     assert controller.snapshot(clock.now).telemetry_stale
 
 
-def test_snapshot_exposes_per_direction_countdowns() -> None:
+def test_accepts_sequence_restart_after_telemetry_goes_stale() -> None:
+    clock = Clock()
+    controller = TrafficController(clock)
+    report(controller, stats_for(GreenPhase.NS_STRAIGHT_RIGHT), sequence=25)
+
+    clock.now = TELEMETRY_TIMEOUT_SECONDS + 0.01
+    assert controller.update_report(
+        stats_for(GreenPhase.EW_STRAIGHT_RIGHT),
+        False,
+        None,
+        sequence=0,
+        now=clock.now,
+    )
+    assert controller.last_sequence == 0
+    assert not controller.telemetry_stale(clock.now)
+
+
+def test_snapshot_exposes_movement_specific_signals_and_countdowns() -> None:
     clock = Clock()
     controller = TrafficController(clock)
     report(controller, stats_for(GreenPhase.NS_STRAIGHT_RIGHT))
@@ -133,8 +150,24 @@ def test_snapshot_exposes_per_direction_countdowns() -> None:
     controller.tick(clock.now)
     snapshot = controller.snapshot(clock.now)
 
-    assert snapshot.signals["north"] == "GREEN"
-    assert snapshot.signals["east"] == "RED"
-    assert snapshot.countdowns.north.visible
-    assert not snapshot.countdowns.east.visible
+    assert snapshot.signals == snapshot.main_signals
+    assert snapshot.countdowns == snapshot.main_countdowns
+    assert snapshot.main_signals["north"] == "GREEN"
+    assert snapshot.left_signals["north"] == "RED"
+    assert snapshot.main_signals["east"] == "RED"
+    assert not snapshot.main_countdowns.north.visible
+    assert not snapshot.left_countdowns.north.visible
     assert snapshot.remaining_ms == controller.phase_duration_seconds * 1000
+
+    controller.phase = GreenPhase.NS_LEFT
+    controller._enter(SubPhase.GREEN, GREEN_MIN_SECONDS, clock.now)
+    snapshot = controller.snapshot(clock.now)
+    assert snapshot.main_signals["north"] == "RED"
+    assert snapshot.left_signals["north"] == "GREEN"
+    assert not snapshot.main_countdowns.north.visible
+    assert not snapshot.left_countdowns.north.visible
+
+    clock.now += GREEN_MIN_SECONDS - 3
+    snapshot = controller.snapshot(clock.now)
+    assert snapshot.left_countdowns.north.visible
+    assert snapshot.left_countdowns.north.seconds == 3

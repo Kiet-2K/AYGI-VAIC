@@ -41,10 +41,11 @@ YELLOW_SECONDS = 3
 ALL_RED_SECONDS = 1
 MAX_ALL_RED_SECONDS = 3
 COMMIT_SECONDS = 8
+COUNTDOWN_SECONDS = 3
 MAX_WAIT_SECONDS = 45
 DOWNSTREAM_FULL = 0.85
 STARVATION_BONUS = 1000
-TELEMETRY_TIMEOUT_SECONDS = 2.0
+TELEMETRY_TIMEOUT_SECONDS = 5.0
 
 
 class TrafficController:
@@ -78,10 +79,11 @@ class TrafficController:
         sequence: int,
         now: float | None = None,
     ) -> bool:
-        if sequence <= self.last_sequence:
+        current = self._clock() if now is None else now
+        if sequence <= self.last_sequence and not self.telemetry_stale(current):
             return False
         self.last_sequence = sequence
-        self.last_report_at = self._clock() if now is None else now
+        self.last_report_at = current
         self.stats = stats
         self.box_occupied = box_occupied
         self.preempt_target = emergency_phase
@@ -287,31 +289,45 @@ class TrafficController:
             self.revision += 1
         return changed
 
-    def _signals(self) -> dict[str, str]:
+    @staticmethod
+    def _phase_is_left(phase: GreenPhase) -> bool:
+        return phase in (GreenPhase.NS_LEFT, GreenPhase.EW_LEFT)
+
+    def _movement_signals(self, left: bool) -> dict[str, str]:
         result = {"north": "RED", "south": "RED", "east": "RED", "west": "RED"}
-        if self.sub_phase is SubPhase.ALL_RED:
+        if self.sub_phase is SubPhase.ALL_RED or self._phase_is_left(self.phase) is not left:
             return result
         color = "GREEN" if self.sub_phase is SubPhase.GREEN else "YELLOW"
         for direction in PHASE_DIRECTIONS[self.phase]:
             result[direction] = color
         return result
 
-    def _countdowns(self, now: float) -> CountdownMap:
-        signals = self._signals()
+    def _signals(self) -> dict[str, str]:
+        return self._movement_signals(left=False)
+
+    def _movement_countdowns(self, now: float, left: bool) -> CountdownMap:
+        signals = self._movement_signals(left)
         remaining = self._remaining(now)
-        reveal_next = self._committed(now)
-        next_directions = PHASE_DIRECTIONS[self.planned_next]
+        next_matches = self._phase_is_left(self.planned_next) is left
+        next_directions = PHASE_DIRECTIONS[self.planned_next] if next_matches else ()
 
         def countdown(direction: str) -> DirectionCountdown:
             color = signals[direction]
-            if color != "RED":
+            if color == "YELLOW":
                 return DirectionCountdown(seconds=remaining, visible=True, color=color)
-            if reveal_next and direction in next_directions:
+            if color == "GREEN":
                 return DirectionCountdown(
-                    seconds=remaining + YELLOW_SECONDS + ALL_RED_SECONDS,
-                    visible=True,
-                    color="RED",
+                    seconds=remaining if remaining <= COUNTDOWN_SECONDS else 0,
+                    visible=remaining <= COUNTDOWN_SECONDS,
+                    color=color,
                 )
+            if (
+                self.sub_phase is SubPhase.ALL_RED
+                and not self.box_occupied
+                and direction in next_directions
+                and remaining <= COUNTDOWN_SECONDS
+            ):
+                return DirectionCountdown(seconds=remaining, visible=True, color="RED")
             return DirectionCountdown(seconds=0, visible=False, color="RED")
 
         return CountdownMap(
@@ -324,14 +340,22 @@ class TrafficController:
     def snapshot(self, now: float | None = None) -> SignalState:
         current = self._clock() if now is None else now
         remaining = self._remaining(current)
+        main_signals = self._movement_signals(left=False)
+        left_signals = self._movement_signals(left=True)
+        main_countdowns = self._movement_countdowns(current, left=False)
+        left_countdowns = self._movement_countdowns(current, left=True)
         return SignalState(
             revision=self.revision,
             serverTimestampMs=round(time.time() * 1000),
             phase=self.phase.value,
             subPhase=self.sub_phase.value,
             plannedNext=self.planned_next.value,
-            signals=self._signals(),
-            countdowns=self._countdowns(current),
+            signals=main_signals,
+            countdowns=main_countdowns,
+            mainSignals=main_signals,
+            leftSignals=left_signals,
+            mainCountdowns=main_countdowns,
+            leftCountdowns=left_countdowns,
             remainingMs=max(0, math.ceil(remaining * 1000)),
             committed=self._committed(current),
             manual=self.manual,

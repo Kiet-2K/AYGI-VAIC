@@ -42,7 +42,17 @@ function SignalBulb({ color, active }: { color: SignalColor; active: boolean }) 
  * into a 2D canvas and uploaded as a texture, so it stays crisp without pulling
  * in any extra 3D-text dependency. Colour follows the head's live signal.
  */
-function CountdownBoard({ seconds, signal, visible }: { seconds: number; signal: SignalColor; visible: boolean }) {
+function CountdownBoard({
+  seconds,
+  signal,
+  visible,
+  x = 0
+}: {
+  seconds: number;
+  signal: SignalColor;
+  visible: boolean;
+  x?: number;
+}) {
   const meshRef = useRef<Mesh>(null);
   const canvas = useMemo(() => {
     const c = document.createElement("canvas");
@@ -76,7 +86,7 @@ function CountdownBoard({ seconds, signal, visible }: { seconds: number; signal:
   useEffect(() => () => texture.dispose(), [texture]);
 
   return (
-    <mesh ref={meshRef} position={[0, -0.95, 0.3]} frustumCulled>
+    <mesh ref={meshRef} position={[x, -0.95, 0.3]} frustumCulled>
       <planeGeometry args={[0.62, 0.62]} />
       <meshBasicMaterial map={texture} toneMapped={false} transparent />
     </mesh>
@@ -85,12 +95,16 @@ function CountdownBoard({ seconds, signal, visible }: { seconds: number; signal:
 
 function SignalHead({
   direction,
-  signal,
-  countdown
+  mainSignal,
+  leftSignal,
+  mainCountdown,
+  leftCountdown
 }: {
   direction: Direction;
-  signal: SignalColor;
-  countdown: DirectionCountdown;
+  mainSignal: SignalColor;
+  leftSignal: SignalColor;
+  mainCountdown: DirectionCountdown;
+  leftCountdown: DirectionCountdown;
 }) {
   return (
     <group position={lightPositions[direction]} rotation={[0, headingYaw[direction], 0]}>
@@ -98,34 +112,52 @@ function SignalHead({
         <cylinderGeometry args={[0.09, 0.13, 2.4, 8]} />
         <meshStandardMaterial color="#1b2632" />
       </mesh>
-      <mesh frustumCulled>
-        <boxGeometry args={[0.78, 1.78, 0.48]} />
-        <meshStandardMaterial color="#111b25" roughness={0.65} />
-      </mesh>
-      <group position={[0, 0.55, 0.28]}>
-        <SignalBulb color="RED" active={signal === "RED"} />
+      <group position={[-0.48, 0, 0]}>
+        <mesh frustumCulled>
+          <boxGeometry args={[0.78, 1.78, 0.48]} />
+          <meshStandardMaterial color="#111b25" roughness={0.65} />
+        </mesh>
+        <group position={[0, 0.55, 0.28]}><SignalBulb color="RED" active={mainSignal === "RED"} /></group>
+        <group position={[0, 0, 0.28]}><SignalBulb color="YELLOW" active={mainSignal === "YELLOW"} /></group>
+        <group position={[0, -0.55, 0.28]}><SignalBulb color="GREEN" active={mainSignal === "GREEN"} /></group>
       </group>
-      <group position={[0, 0, 0.28]}>
-        <SignalBulb color="YELLOW" active={signal === "YELLOW"} />
+      <group position={[0.48, 0, 0]}>
+        <mesh frustumCulled>
+          <boxGeometry args={[0.68, 1.78, 0.48]} />
+          <meshStandardMaterial color="#111b25" roughness={0.65} />
+        </mesh>
+        <group position={[0, 0.55, 0.28]}><SignalBulb color="RED" active={leftSignal === "RED"} /></group>
+        <group position={[0, 0, 0.28]}><SignalBulb color="YELLOW" active={leftSignal === "YELLOW"} /></group>
+        <group position={[0, -0.55, 0.28]}><SignalBulb color="GREEN" active={leftSignal === "GREEN"} /></group>
+        <mesh position={[0, -0.55, 0.52]} rotation={[0, 0, Math.PI / 2]}>
+          <coneGeometry args={[0.13, 0.32, 3]} />
+          <meshBasicMaterial color={leftSignal === "GREEN" ? BULB_COLORS.GREEN : "#607080"} />
+        </mesh>
       </group>
-      <group position={[0, -0.55, 0.28]}>
-        <SignalBulb color="GREEN" active={signal === "GREEN"} />
-      </group>
-      {/* Each head owns its own countdown; blank until the AI serves this movement. */}
-      <CountdownBoard seconds={countdown.seconds} signal={countdown.color} visible={countdown.visible} />
+      <CountdownBoard x={-0.48} seconds={mainCountdown.seconds} signal={mainCountdown.color} visible={mainCountdown.visible} />
+      <CountdownBoard x={0.48} seconds={leftCountdown.seconds} signal={leftCountdown.color} visible={leftCountdown.visible} />
     </group>
   );
 }
 
-export function TrafficLights({ signals, countdowns }: { signals: SignalMap; countdowns: CountdownMap }) {
+interface TrafficLightsProps {
+  mainSignals: SignalMap;
+  leftSignals: SignalMap;
+  mainCountdowns: CountdownMap;
+  leftCountdowns: CountdownMap;
+}
+
+export function TrafficLights({ mainSignals, leftSignals, mainCountdowns, leftCountdowns }: TrafficLightsProps) {
   return (
     <group>
       {(Object.keys(lightPositions) as Direction[]).map((direction) => (
         <SignalHead
           key={direction}
           direction={direction}
-          signal={signals[direction]}
-          countdown={countdowns[direction]}
+          mainSignal={mainSignals[direction]}
+          leftSignal={leftSignals[direction]}
+          mainCountdown={mainCountdowns[direction]}
+          leftCountdown={leftCountdowns[direction]}
         />
       ))}
     </group>

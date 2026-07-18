@@ -32,6 +32,52 @@ function run(engine: SimulationEngine, seconds: number, dt = 1 / 60): void {
 }
 
 describe("SimulationEngine integration", () => {
+  it("allocates unique five-digit plates and reuses normal plates after reset", () => {
+    const engine = new SimulationEngine({ rng: seededRng(91), spawnIntervalSeconds: 0.05, maxVehicles: 20 });
+    run(engine, 2);
+    const plates = engine.vehicles.map((vehicle) => vehicle.licensePlate);
+    expect(plates.length).toBeGreaterThan(1);
+    expect(new Set(plates).size).toBe(plates.length);
+    expect(plates.every((plate) => /^\d{5}$/.test(plate))).toBe(true);
+    const released = new Set(plates);
+    engine.reset();
+    expect(engine.activePlateCount).toBe(0);
+    expect(engine.reusablePlateCount).toBe(released.size);
+    run(engine, 1);
+    expect(engine.vehicles.some((vehicle) => released.has(vehicle.licensePlate))).toBe(true);
+  });
+
+  it("blacklists a red-light plate once and keeps it unavailable across reset", () => {
+    const engine = new SimulationEngine({ rng: seededRng(92), spawnIntervalSeconds: 0.05, maxVehicles: 10 });
+    engine.triggerRedLightViolation();
+    let violation;
+    for (let i = 0; i < 60 * 30 && !violation; i += 1) {
+      engine.tick(1 / 60);
+      violation = engine.drainViolations()[0];
+    }
+    expect(violation).toBeDefined();
+    if (!violation) throw new Error("expected deterministic red-light violation");
+    expect(violation.vehicleClass).toBeTruthy();
+    expect(violation.licensePlate).toMatch(/^\d{5}$/);
+    const plate = violation.licensePlate;
+    expect(engine.blacklistedPlateCount()).toBeGreaterThan(0);
+    engine.reset();
+    run(engine, 3);
+    expect(engine.vehicles.some((vehicle) => vehicle.licensePlate === plate)).toBe(false);
+    expect(engine.vehicles.length).toBeLessThanOrEqual(10);
+  });
+
+  it("uses the existing clock for pause and speed controls", () => {
+    const engine = new SimulationEngine({ rng: seededRng(93), spawnIntervalSeconds: 0.5 });
+    engine.pause();
+    run(engine, 2);
+    expect(engine.vehicles).toHaveLength(0);
+    engine.resume();
+    engine.setSpeedMultiplier(2);
+    run(engine, 0.3);
+    expect(engine.vehicles.length).toBeGreaterThan(0);
+  });
+
   it("spawns vehicles over time", () => {
     const engine = new SimulationEngine({ rng: seededRng(1), spawnIntervalSeconds: 0.5 });
     run(engine, 10);

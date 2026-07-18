@@ -13,7 +13,8 @@ import type {
   DirectionTrafficCounts,
   QueueCounts,
   SignalMap,
-  TrafficReport
+  TrafficReport,
+  ViolationEvent
 } from "@/types/traffic";
 
 // Camera pulled back and up so the whole enlarged intersection stays in frame.
@@ -26,12 +27,15 @@ const ROAD_WIDTH = (LANE_OFFSET + 1.2) * 2; // two lanes + shoulder
 const GROUND = ROAD_SPAN + 24; // ground plane a bit larger than the roads
 
 interface Map3DProps {
-  signals: SignalMap;
-  countdowns: CountdownMap;
+  mainSignals: SignalMap;
+  leftSignals: SignalMap;
+  mainCountdowns: CountdownMap;
+  leftCountdowns: CountdownMap;
   onDetections: (boxes: DetectionBox[]) => void;
   onQueuesChange: (queues: QueueCounts) => void;
   onTrafficCounts: (counts: DirectionTrafficCounts) => void;
   onTrafficReport: (report: TrafficReport) => void;
+  onViolations: (events: ViolationEvent[], blacklistedCount: number) => void;
   onFpsChange: (fps: number) => void;
   onSnapshot: (snapshot: EngineSnapshot) => void;
   bindEngine: (handle: VehicleManagerHandle) => void;
@@ -153,12 +157,15 @@ function IntersectionEnvironment() {
 }
 
 export function Map3D({
-  signals,
-  countdowns,
+  mainSignals,
+  leftSignals,
+  mainCountdowns,
+  leftCountdowns,
   onDetections,
   onQueuesChange,
   onTrafficCounts,
   onTrafficReport,
+  onViolations,
   onFpsChange,
   onSnapshot,
   bindEngine
@@ -168,19 +175,25 @@ export function Map3D({
       className="h-full w-full"
       camera={{ fov: 46, near: 0.1, far: 260, position: CAMERA_POSITION }}
       dpr={[1, 1.5]}
-      gl={{ antialias: true, powerPreference: "high-performance" }}
+      gl={{ antialias: true, powerPreference: "high-performance", preserveDrawingBuffer: true }}
     >
       <color attach="background" args={["#09131f"]} />
       <ambientLight intensity={1.6} />
       <directionalLight position={[16, 28, 12]} intensity={2.5} />
       <FixedCctvCamera />
       <IntersectionEnvironment />
-      <TrafficLights signals={signals} countdowns={countdowns} />
+      <TrafficLights
+        mainSignals={mainSignals}
+        leftSignals={leftSignals}
+        mainCountdowns={mainCountdowns}
+        leftCountdowns={leftCountdowns}
+      />
       <VehicleManager
         onDetections={onDetections}
         onQueuesChange={onQueuesChange}
         onTrafficCounts={onTrafficCounts}
         onTrafficReport={onTrafficReport}
+        onViolations={onViolations}
         onFpsChange={onFpsChange}
         onSnapshot={onSnapshot}
         bindEngine={bindEngine}

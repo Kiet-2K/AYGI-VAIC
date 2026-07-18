@@ -1,0 +1,13 @@
+frontend/node_modules/
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+backend/.pytest_cache/
+backend/__pycache__/
+backend/**/*.pyc
+backend/.venv/
+
+# Internal AI-assisted development log; keep local unless explicitly approved.
+AI_DEVELOPMENT_LOG.md

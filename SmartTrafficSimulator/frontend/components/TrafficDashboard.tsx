@@ -1,13 +1,17 @@
 "use client";
 
-import type { EngineSnapshot } from "@/lib/sim/engine";
+import Link from "next/link";
+
+import type { EngineSnapshot, ScenarioId } from "@/lib/sim/engine";
 import {
   DIRECTIONS,
   ROAD_NAMES,
   type BackendConnectionState,
   type ControlAction,
   type DirectionTrafficCounts,
-  type SignalColor
+  type SignalColor,
+  type TrafficReport,
+  type ViolationEvent
 } from "@/types/traffic";
 
 const signalLabel: Record<SignalColor, string> = { GREEN: "XANH", YELLOW: "VÀNG", RED: "ĐỎ" };
@@ -29,10 +33,10 @@ const stateStyle: Record<string, string> = {
   GRIDLOCK: "bg-red-500/25 text-red-300 border-red-500/50"
 };
 const phaseLabel: Record<string, string> = {
-  NS_LEFT: "Bắc–Nam rẽ trái",
-  NS_STRAIGHT_RIGHT: "Bắc–Nam đi thẳng và rẽ phải",
-  EW_LEFT: "Đông–Tây rẽ trái",
-  EW_STRAIGHT_RIGHT: "Đông–Tây đi thẳng và rẽ phải"
+  NS_LEFT: "Bắc–Nam: mũi tên trái",
+  NS_STRAIGHT_RIGHT: "Bắc–Nam: đèn chính ↑→",
+  EW_LEFT: "Đông–Tây: mũi tên trái",
+  EW_STRAIGHT_RIGHT: "Đông–Tây: đèn chính ↑→"
 };
 
 function ControlButton({
@@ -73,6 +77,11 @@ export interface DashboardControls {
   onEmergency: () => void;
   onClearEmergency: () => void;
   onReset: () => void;
+  onPauseChange: (paused: boolean) => void;
+  onSpeedChange: (speed: number) => void;
+  onScenarioChange: (scenario: ScenarioId) => void;
+  onSpawnEmergency: () => void;
+  onTriggerViolation: () => void;
 }
 
 function connectionText(state: BackendConnectionState, latencyMs: number | null): string {
@@ -90,6 +99,11 @@ export function TrafficDashboard({
   pendingCommand,
   backendError,
   fps,
+  violations,
+  blacklistedCount,
+  paused,
+  speedMultiplier,
+  trafficReport,
   controls
 }: {
   counts: DirectionTrafficCounts;
@@ -99,6 +113,11 @@ export function TrafficDashboard({
   pendingCommand: ControlAction | null;
   backendError: string | null;
   fps: number;
+  violations: ViolationEvent[];
+  blacklistedCount: number;
+  paused: boolean;
+  speedMultiplier: number;
+  trafficReport: TrafficReport | null;
   controls: DashboardControls;
 }) {
   const controlsDisabled = connectionState !== "CONNECTED" || pendingCommand !== null;
@@ -143,28 +162,86 @@ export function TrafficDashboard({
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         {DIRECTIONS.map((direction) => {
-          const signal = snapshot.signals[direction];
+          const mainSignal = snapshot.mainSignals[direction];
+          const leftSignal = snapshot.leftSignals[direction];
+          const mainCountdown = snapshot.mainCountdowns[direction];
+          const leftCountdown = snapshot.leftCountdowns[direction];
           const count = counts[direction];
           return (
             <div key={direction} className="rounded-lg bg-slate-800/80 p-2">
-              <div className="flex items-start justify-between gap-1 text-[10px] text-slate-300">
-                <span>{ROAD_NAMES[direction]}</span>
-                <span className={`shrink-0 rounded px-1.5 py-0.5 text-[9px] font-black ${signalStyle[signal]}`}>{signalLabel[signal]}</span>
+              <p className="text-[10px] text-slate-300">{ROAD_NAMES[direction]}</p>
+              <div className="mt-1 flex items-center justify-between gap-1 text-[9px]">
+                <span>Đèn chính ↑→</span>
+                <span className={`rounded px-1.5 py-0.5 font-black ${signalStyle[mainSignal]}`}>
+                  {signalLabel[mainSignal]}{mainCountdown.visible ? ` ${Math.round(mainCountdown.seconds)}s` : ""}
+                </span>
               </div>
-              <p className="mt-1 text-sm font-bold">Tổng xe: {count.total}</p>
-              <p className="text-xs text-amber-200">Xe đang chờ: {count.waiting}</p>
+              <div className="mt-1 flex items-center justify-between gap-1 text-[9px]">
+                <span>Mũi tên trái</span>
+                <span className={`rounded px-1.5 py-0.5 font-black ${signalStyle[leftSignal]}`}>
+                  {signalLabel[leftSignal]}{leftCountdown.visible ? ` ${Math.round(leftCountdown.seconds)}s` : ""}
+                </span>
+              </div>
+              <p className="mt-1 text-xs font-bold">Tổng xe: {count.total}</p>
+              <p className="text-[10px] text-amber-200">Xe đang chờ: {count.waiting}</p>
             </div>
           );
         })}
       </div>
 
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center text-[10px]">
+        <div className="rounded-lg bg-slate-900/70 p-2">PCE chờ<br /><b>{trafficReport ? Object.values(trafficReport.stats).reduce((sum, item) => sum + item.queuePcu, 0).toFixed(1) : "0.0"}</b></div>
+        <div className="rounded-lg bg-slate-900/70 p-2">Vi phạm<br /><b>{violations.length}</b></div>
+        <div className="rounded-lg bg-slate-900/70 p-2">Biển cấm<br /><b>{blacklistedCount}</b></div>
+      </div>
+
       <div className="mt-3 grid grid-cols-2 gap-2">
-        <ControlButton label="Tự động" onClick={controls.onAuto} active={!snapshot.manual} disabled={controlsDisabled} />
+        <ControlButton label={paused ? "Tiếp tục" : "Tạm dừng"} onClick={() => controls.onPauseChange(!paused)} disabled={false} />
+        <select
+          aria-label="Tốc độ mô phỏng"
+          value={speedMultiplier}
+          onChange={(event) => controls.onSpeedChange(Number(event.target.value))}
+          className="rounded-lg border border-slate-600 bg-slate-800 px-2 text-[10px] font-bold text-slate-200"
+        >
+          {[0.5, 1, 2, 4].map((speed) => <option key={speed} value={speed}>{speed}× tốc độ</option>)}
+        </select>
+        <select
+          aria-label="Kịch bản trình diễn"
+          defaultValue="DEFAULT"
+          onChange={(event) => controls.onScenarioChange(event.target.value as ScenarioId)}
+          className="col-span-2 rounded-lg border border-slate-600 bg-slate-800 px-2 py-1.5 text-[10px] font-bold text-slate-200"
+        >
+          <option value="DEFAULT">Mặc định</option>
+          <option value="IMBALANCED">Lưu lượng lệch hướng</option>
+          <option value="SPILLBACK">Nguy cơ spillback</option>
+          <option value="EMERGENCY">Xe khẩn cấp</option>
+          <option value="GRIDLOCK">Lưu lượng cao</option>
+          <option value="RED_LIGHT">Kiểm thử vượt đèn đỏ</option>
+        </select>
+        <ControlButton label="Tạo xe khẩn cấp" onClick={controls.onSpawnEmergency} disabled={false} />
+        <ControlButton label="Test vượt đèn đỏ" onClick={controls.onTriggerViolation} tone="danger" disabled={false} />
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
         <ControlButton label="Thủ công" onClick={controls.onManual} active={snapshot.manual} disabled={controlsDisabled} />
         <ControlButton label="Chuyển pha an toàn" onClick={controls.onRequestNext} tone="warn" disabled={controlsDisabled} />
         <ControlButton label="Giữ toàn đỏ" onClick={controls.onEmergency} tone="danger" disabled={controlsDisabled} />
         <ControlButton label="Bỏ giữ toàn đỏ" onClick={controls.onClearEmergency} disabled={controlsDisabled} />
         <ControlButton label="Khởi động lại" onClick={controls.onReset} disabled={controlsDisabled} />
+      </div>
+
+      <div className="mt-3 rounded-lg border border-red-500/30 bg-red-950/30 p-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] font-black uppercase text-red-200">Nhật ký vi phạm · {violations.length}</p>
+          <Link
+            href="/violations"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded bg-red-500/20 px-2 py-1 text-[9px] font-bold text-red-100 hover:bg-red-500/30"
+          >
+            Mở nhật ký
+          </Link>
+        </div>
       </div>
 
       {pendingCommand && <p className="mt-2 text-[10px] text-cyan-300">Đang chờ backend xác nhận lệnh {pendingCommand}…</p>}

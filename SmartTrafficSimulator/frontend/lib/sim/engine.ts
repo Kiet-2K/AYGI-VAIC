@@ -22,7 +22,8 @@ import {
   type QueueCounts,
   type SignalMap,
   type SignalState,
-  type TrafficReport
+  type TrafficReport,
+  type ViolationEvent
 } from "@/types/traffic";
 
 /**
@@ -54,6 +55,10 @@ const RATE_ALPHA = 0.3;
 const EMERGENCY_SPAWN_CHANCE = 0.008;
 /** How far before the stop line an approaching emergency vehicle triggers preemption. */
 const PREEMPT_TRIGGER_DISTANCE = 30;
+const PLATE_SPACE = 100_000;
+const INTERSECTION_NAME = "Nút giao Trần Hưng Đạo – 3 Tháng 2 – Mậu Thân";
+
+export type ScenarioId = "DEFAULT" | "IMBALANCED" | "SPILLBACK" | "EMERGENCY" | "GRIDLOCK" | "RED_LIGHT";
 
 export interface EngineOptions {
   rng?: () => number;
@@ -71,8 +76,11 @@ export interface EngineSnapshot {
   state: string;
   reason: string;
   signals: SignalMap;
-  /** Per-direction countdown; each light shows its own timer, blank until served. */
   countdowns: CountdownMap;
+  mainSignals: SignalMap;
+  leftSignals: SignalMap;
+  mainCountdowns: CountdownMap;
+  leftCountdowns: CountdownMap;
   /** True while an emergency-vehicle preemption is active. */
   preempted: boolean;
   /** The phase preemption is driving toward (for the dashboard banner), or null. */
@@ -124,6 +132,17 @@ export class SimulationEngine {
   private authoritativeState: SignalState | null = null;
   private authoritativeMode = false;
   private reportSequence = 0;
+  private readonly activePlates = new Set<string>();
+  private readonly reusablePlates: string[] = [];
+  private readonly reusablePlateSet = new Set<string>();
+  private readonly blacklistedPlates = new Set<string>();
+  private readonly pendingViolations: ViolationEvent[] = [];
+  private nextPlateNumber = 0;
+  private scenario: ScenarioId = "DEFAULT";
+  private pendingEmergencySpawn = false;
+  private pendingViolationSpawn = false;
+  private paused = false;
+  private speedMultiplier = 1;
 
   private spawnClock = 0;
   private statsClock = 0;
@@ -167,14 +186,70 @@ export class SimulationEngine {
     this.signal.clearEmergency();
   }
 
+  setScenario(scenario: ScenarioId): void {
+    this.scenario = scenario;
+    this.reset();
+  }
+
+  get scenarioId(): ScenarioId {
+    return this.scenario;
+  }
+
+  pause(): void {
+    this.paused = true;
+  }
+
+  resume(): void {
+    this.paused = false;
+  }
+
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
+  setSpeedMultiplier(multiplier: number): void {
+    this.speedMultiplier = Math.max(0.25, Math.min(4, multiplier));
+  }
+
+  get simulationSpeed(): number {
+    return this.speedMultiplier;
+  }
+
+  triggerEmergency(): void {
+    this.pendingEmergencySpawn = true;
+  }
+
+  triggerRedLightViolation(): void {
+    this.pendingViolationSpawn = true;
+  }
+
+  drainViolations(): ViolationEvent[] {
+    return this.pendingViolations.splice(0);
+  }
+
+  blacklistedPlateCount(): number {
+    return this.blacklistedPlates.size;
+  }
+
   reset(): void {
+    for (const vehicle of this.vehicles) this.releasePlate(vehicle);
     this.vehicles.length = 0;
     this.conflicts.clear();
     this.spawnClock = 0;
     this.statsClock = 0;
     this.stats = emptyStatsMap();
     this.outboundOccupancy = { north: 0, south: 0, east: 0, west: 0 };
+    this.pendingEmergencySpawn = this.scenario === "EMERGENCY";
+    this.pendingViolationSpawn = this.scenario === "RED_LIGHT";
     for (const d of DIRECTIONS) this.rates[d] = emptyRate();
+  }
+
+  get activePlateCount(): number {
+    return this.activePlates.size;
+  }
+
+  get reusablePlateCount(): number {
+    return this.reusablePlateSet.size;
   }
 
   get manual(): boolean {
@@ -190,11 +265,16 @@ export class SimulationEngine {
 
   /** Advance the whole world by `dt` seconds. */
   tick(dt: number): void {
+    if (this.paused || dt <= 0) return;
+    dt *= this.speedMultiplier;
     this.spawnClock += dt;
     this.statsClock += dt;
 
-    if (this.spawnClock >= this.spawnInterval) {
-      this.spawnClock -= this.spawnInterval;
+    const effectiveSpawnInterval = this.scenario === "GRIDLOCK" || this.scenario === "SPILLBACK"
+      ? Math.min(this.spawnInterval, 0.35)
+      : this.spawnInterval;
+    if (this.spawnClock >= effectiveSpawnInterval) {
+      this.spawnClock -= effectiveSpawnInterval;
       this.trySpawn();
     }
 
@@ -249,22 +329,55 @@ export class SimulationEngine {
     );
     if (!clear) return;
 
-    const emergency = this.rng() < EMERGENCY_SPAWN_CHANCE;
+    const emergency = this.pendingEmergencySpawn || this.scenario === "EMERGENCY" || this.rng() < EMERGENCY_SPAWN_CHANCE;
+    const forceViolation = this.pendingViolationSpawn;
+    this.pendingEmergencySpawn = false;
+    this.pendingViolationSpawn = false;
     const cls = emergency ? pickEmergencyClass(this.rng) : pickVehicleClass(this.rng);
     const trackId = this.nextTrackId++;
+    const licensePlate = this.allocatePlate();
+    if (!licensePlate) return;
     this.rates[direction].arrivals += 1;
-    this.vehicles.push(
-      createVehicle({
-        id: `veh-${trackId}`,
-        trackId,
-        cls,
-        route,
-        confidence: 0.9 + this.rng() * 0.09,
-        reactionTime: 0.9 + this.rng() * 0.5,
-        emergency,
-        licensePlate: Math.floor(this.rng() * 100_000).toString().padStart(5, "0")
-      })
-    );
+    const vehicle = createVehicle({
+      id: `veh-${trackId}`,
+      trackId,
+      cls,
+      route,
+      confidence: 0.9 + this.rng() * 0.09,
+      reactionTime: 0.9 + this.rng() * 0.5,
+      emergency,
+      licensePlate
+    });
+    vehicle.forceRedLightViolation = forceViolation;
+    this.vehicles.push(vehicle);
+  }
+
+  private allocatePlate(): string | null {
+    while (this.reusablePlates.length > 0) {
+      const plate = this.reusablePlates.pop()!;
+      this.reusablePlateSet.delete(plate);
+      if (!this.blacklistedPlates.has(plate) && !this.activePlates.has(plate)) {
+        this.activePlates.add(plate);
+        return plate;
+      }
+    }
+    for (let checked = 0; checked < PLATE_SPACE; checked += 1) {
+      const plate = this.nextPlateNumber.toString().padStart(5, "0");
+      this.nextPlateNumber = (this.nextPlateNumber + 1) % PLATE_SPACE;
+      if (!this.activePlates.has(plate) && !this.blacklistedPlates.has(plate)) {
+        this.activePlates.add(plate);
+        return plate;
+      }
+    }
+    return null;
+  }
+
+  private releasePlate(vehicle: Vehicle): void {
+    const plate = vehicle.licensePlate;
+    this.activePlates.delete(plate);
+    if (vehicle.redLightViolation || this.blacklistedPlates.has(plate) || this.reusablePlateSet.has(plate)) return;
+    this.reusablePlates.push(plate);
+    this.reusablePlateSet.add(plate);
   }
 
   // -- emergency preemption --------------------------------------------------
@@ -325,6 +438,25 @@ export class SimulationEngine {
           colorBeforeMove !== "GREEN"
         ) {
           vehicle.redLightViolation = true;
+          this.blacklistedPlates.add(vehicle.licensePlate);
+          this.reusablePlateSet.delete(vehicle.licensePlate);
+          this.pendingViolations.push({
+            type: "violation_event",
+            trackId: vehicle.trackId,
+            licensePlate: vehicle.licensePlate,
+            vehicleClass: vehicle.cls,
+            direction: vehicle.route.direction,
+            movement: vehicle.route.turn,
+            violation: "RED_LIGHT",
+            signal: colorBeforeMove,
+            timestampMs: Date.now(),
+            intersection: INTERSECTION_NAME,
+            evidence: {
+              laneId: vehicle.route.entryLaneId,
+              speed: vehicle.speed,
+              signal: colorBeforeMove
+            }
+          });
         }
         // Accumulate real queued time: a vehicle that is stopped and still short
         // of the stop line is waiting for green (feeds the starvation metric).
@@ -362,7 +494,7 @@ export class SimulationEngine {
 
     // Virtual stop-line obstacle: place a wall at the stop line when the vehicle
     // must not cross (red/committed-yellow, unmet conflict reservation, full exit).
-    if (!vehicle.hasReserved && this.mustStopAtLine(vehicle)) {
+    if (!vehicle.forceRedLightViolation && !vehicle.hasReserved && this.mustStopAtLine(vehicle)) {
       // Wall just before the stop line, offset by body length so the bumper lands on it.
       const wall = vehicle.route.stopProgress;
       if (wall < edge) {
@@ -494,6 +626,7 @@ export class SimulationEngine {
       if (vehicle.progress >= vehicle.route.path.length - 0.05) {
         this.conflicts.releaseAll(vehicle.id);
         this.rates[vehicle.route.direction].departures += 1;
+        this.releasePlate(vehicle);
         this.vehicles.splice(i, 1);
       }
     }
@@ -653,8 +786,12 @@ export class SimulationEngine {
         manual: backend.manual,
         state: backend.state,
         reason: backend.reason,
-        signals: backend.telemetryStale ? SAFE_SIGNALS : backend.signals,
-        countdowns: backend.telemetryStale ? BLANK_COUNTDOWNS : backend.countdowns,
+        signals: backend.telemetryStale ? SAFE_SIGNALS : backend.mainSignals,
+        countdowns: backend.telemetryStale ? BLANK_COUNTDOWNS : backend.mainCountdowns,
+        mainSignals: backend.telemetryStale ? SAFE_SIGNALS : backend.mainSignals,
+        leftSignals: backend.telemetryStale ? SAFE_SIGNALS : backend.leftSignals,
+        mainCountdowns: backend.telemetryStale ? BLANK_COUNTDOWNS : backend.mainCountdowns,
+        leftCountdowns: backend.telemetryStale ? BLANK_COUNTDOWNS : backend.leftCountdowns,
         preempted: backend.preempted,
         preemptTarget: backend.preemptTarget,
         aiDebug: this.aiDebug()
@@ -672,6 +809,10 @@ export class SimulationEngine {
         reason: "Đang chờ trạng thái điều khiển từ backend.",
         signals: SAFE_SIGNALS,
         countdowns: BLANK_COUNTDOWNS,
+        mainSignals: SAFE_SIGNALS,
+        leftSignals: SAFE_SIGNALS,
+        mainCountdowns: BLANK_COUNTDOWNS,
+        leftCountdowns: BLANK_COUNTDOWNS,
         preempted: false,
         preemptTarget: null,
         aiDebug: this.aiDebug()
@@ -688,6 +829,10 @@ export class SimulationEngine {
       reason: this.adaptive.reason,
       signals: this.signal.perDirectionSignals(),
       countdowns: this.signal.perDirectionCountdown(),
+      mainSignals: this.signal.perDirectionSignals(),
+      leftSignals: this.signal.leftSignals(),
+      mainCountdowns: this.signal.perDirectionCountdown(),
+      leftCountdowns: this.signal.leftCountdown(),
       preempted: this.signal.preempted,
       preemptTarget: this.signal.preemptTarget,
       aiDebug: this.aiDebug()
