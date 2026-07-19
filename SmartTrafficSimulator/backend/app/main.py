@@ -16,6 +16,7 @@ from .controller import GreenPhase, TrafficController
 from .hardware import MockTrafficLightOutput, TrafficLightOutput
 from .schemas import ControlCommand, TrafficReport, ViolationDeleteBatch, ViolationEvent, ViolationHistory
 from .violations import SQLiteViolationRepository, ViolationRepository
+from .hub_bridge import HubBridge
 
 
 class ConnectionManager:
@@ -61,6 +62,10 @@ class TrafficService:
         )
         self._last_broadcast_revision = -1
         self._last_broadcast_at = 0.0
+        # Cầu nối tùy chọn: chuyển tiếp vi phạm lên hub STMS (tích hợp).
+        # Tự tắt nếu chưa cấu hình HUB_URL/HUB_DEVICE_KEY → simulator chạy độc lập.
+        self.hub_bridge = HubBridge()
+        self.hub_bridge.replay_history(self.violations.list())
 
     def payload(self) -> dict[str, Any]:
         return self.controller.snapshot().model_dump(by_alias=True)
@@ -84,6 +89,8 @@ class TrafficService:
         recorded = self.violations.add(event)
         if recorded is None:
             return False
+        # Chuyển tiếp lên hub STMS (nền, không chặn) — chỉ khi bridge được bật.
+        self.hub_bridge.forward_violation(recorded)
         await self.connections.broadcast(recorded.model_dump(by_alias=True, mode="json", exclude_none=True))
         return True
 

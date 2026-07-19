@@ -14,9 +14,11 @@ services:
     build:
       context: ./frontend
       args:
-        NEXT_PUBLIC_TRAFFIC_WS_URL: ws://localhost:8000/ws/traffic
+        NEXT_PUBLIC_TRAFFIC_WS_URL: ${TRAFFIC_WS_URL:-ws://localhost:8000/ws/traffic}
+        NEXT_PUBLIC_TRAFFIC_API_URL: ${TRAFFIC_API_URL:-http://localhost:8000}
     environment:
-      NEXT_PUBLIC_TRAFFIC_WS_URL: ws://localhost:8000/ws/traffic
+      NEXT_PUBLIC_TRAFFIC_WS_URL: ${TRAFFIC_WS_URL:-ws://localhost:8000/ws/traffic}
+      NEXT_PUBLIC_TRAFFIC_API_URL: ${TRAFFIC_API_URL:-http://localhost:8000}
     ports:
       - "3000:3000"
     depends_on:

@@ -16,6 +16,18 @@ SmartTrafficSimulator/backend/__pycache__/
 SmartTrafficSimulator/backend/**/*.pyc
 SmartTrafficSimulator/backend/.venv/
 
+# Legacy paths (before moving into SmartTrafficSimulator)
+frontend/node_modules/
+frontend/.next/
+frontend/tsconfig.tsbuildinfo
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+backend/.pytest_cache/
+backend/__pycache__/
+backend/**/*.pyc
+backend/.venv/
+
 # Local environment files; commit only sanitized examples.
 .env
 .env.*
@@ -23,3 +35,6 @@ SmartTrafficSimulator/backend/.venv/
 **/.env.*
 !.env.example
 !**/.env.example
+
+# Internal AI-assisted development log; keep local unless explicitly approved.
+AI_DEVELOPMENT_LOG.md
